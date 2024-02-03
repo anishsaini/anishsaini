@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Peer-to-Peer Chatroom</title>
+    <style>
+        #messages {
+            height: 200px;
+            overflow-y: scroll;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="messages"></div>
+    <input type="text" id="messageInput" placeholder="Type your message">
+    <button onclick="sendMessage()">Send</button>
+
+    <script>
+        let peerConnection;
+        const socket = new WebSocket('ws://localhost:8080');
+
+        socket.addEventListener('message', async (event) => {
+            const data = JSON.parse(event.data);
+
+            if (data.type === 'offer') {
+                await handleOffer(data);
+            } else if (data.type === 'answer') {
+                await handleAnswer(data);
+            } else if (data.type === 'ice-candidate') {
+                handleIceCandidate(data);
+            } else if (data.type === 'message') {
+                displayMessage(data.sender, data.message);
+            }
+        });
+
+        async function createOffer() {
+            peerConnection = new RTCPeerConnection();
+
+            peerConnection.onicecandidate = (event) => {
+                if (event.candidate) {
+                    sendIceCandidate(event.candidate);
+                }
+            };
+
+            const offer = await peerConnection.createOffer();
+            await peerConnection.setLocalDescription(offer);
+
+            socket.send(JSON.stringify({
+                type: 'offer',
+                offer: offer
+            }));
+        }
+
+        async function handleOffer(data) {
+            peerConnection = new RTCPeerConnection();
+
+            peerConnection.onicecandidate = (event) => {
+                if (event.candidate) {
+                    sendIceCandidate(event.candidate);
+                }
+            };
+
+            await peerConnection.setRemoteDescription(new RTCSessionDescription(data.offer));
+            const answer = await peerConnection.createAnswer();
+            await peerConnection.setLocalDescription(answer);
+
+            socket.send(JSON.stringify({
+                type: 'answer',
+                answer: answer
+            }));
+        }
+
+        async function handleAnswer(data) {
+            await peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer));
+        }
+
+        function sendIceCandidate(candidate) {
+            socket.send(JSON.stringify({
+                type: 'ice-candidate',
+                candidate: candidate
+            }));
+        }
+
+        function handleIceCandidate(data) {
+            peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate));
+        }
+
+        function sendMessage() {
+            const messageInput = document.getElementById('messageInput');
+            const message = messageInput.value;
+
+            socket.send(JSON.stringify({
+                type: 'message',
+                message: message
+            }));
+
+            displayMessage('You', message);
+
+            messageInput.value = ''; // Clear the input field
+        }
+
+        function displayMessage(sender, message) {
+            const messagesDiv = document.getElementById('messages');
+            const messageElement = document.createElement('p');
+            messageElement.textContent = `${sender}: ${message}`;
+            messagesDiv.appendChild(messageElement);
+        }
+
+        createOffer(); // Start creating an offer when the page loads
+    </script>
+</body>
+
+</html>
